@@ -26,7 +26,7 @@ prefix <- "OOPS_AB023_G3Bp1_intensities_"
 
 ### 2.  Read the files as tibbles and remove the prefix from the titles.
 
-```{r read_the_files, echo = T, message=FALSE}
+```{r read_the_files, echo = T, message=FALSE, include=FALSE}
 # Read all csv files into tibbles
 
 csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
@@ -74,18 +74,26 @@ Abs_intensities <- left_join(Abs_intensities, metadata, by = "ImageNumber")
 
 ### Plot
 
-```{r plots, fig.height = 7, fig.width = 7}
+```{r plots}
 
-DAPI_intensity_plot <- DAPI_intensities |> group_by(Name) |> summarize(Mean_DAPI_Intensity = mean(Intensity_IntegratedIntensity_DAPI), SD_DAPI_Intensity = sd(Intensity_IntegratedIntensity_DAPI)) |>  ggplot(aes(x = factor(Name), y = Mean_DAPI_Intensity)) + geom_bar(stat = "identity", fill="cornflowerblue") + labs(x = "Image Number", y = "Mean DAPI Intensity") + geom_errorbar(aes(ymin = Mean_DAPI_Intensity - SD_DAPI_Intensity, ymax = Mean_DAPI_Intensity + SD_DAPI_Intensity), width = 0.2)  + ggtitle("Mean DAPI Intensity per Cell") + theme_bw()
+DAPI_intensity_plot <- DAPI_intensities |> group_by(Name) |> summarize(Mean_DAPI_Intensity = mean(Intensity_IntegratedIntensity_DAPI), SD_DAPI_Intensity = sd(Intensity_IntegratedIntensity_DAPI)) |>  ggplot(aes(x = factor(Name), y = Mean_DAPI_Intensity)) + geom_bar(stat = "identity", fill="cornflowerblue") + labs(x = "Image Number", y = "Mean DAPI Intensity") + geom_errorbar(aes(ymin = Mean_DAPI_Intensity - SD_DAPI_Intensity, ymax = Mean_DAPI_Intensity + SD_DAPI_Intensity), width = 0.2)  + ggtitle("Mean DAPI Intensity per Cell") + theme_bw() + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-G3Bp1_intensities_plot <- Abs_intensities |> group_by(Name) |> summarize(Mean_G3Bp1_Intensity = mean(Intensity_IntegratedIntensity_G3Bp1), SD_G3Bp1_Intensity = sd(Intensity_IntegratedIntensity_G3Bp1)) |> ggplot(aes(x = factor(Name), y = Mean_G3Bp1_Intensity)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean G3Bp1 Intensity") + geom_errorbar(aes(ymin = Mean_G3Bp1_Intensity - SD_G3Bp1_Intensity, ymax = Mean_G3Bp1_Intensity + SD_G3Bp1_Intensity), width = 0.2)  + ggtitle("Mean G3Bp1 Intensity per Cell") + theme_bw()
+mean_G3Bp1 <- Abs_intensities |> group_by(Name) |> summarize(Mean_G3Bp1_Intensity = mean(Intensity_IntegratedIntensity_G3Bp1), SD_G3Bp1_Intensity = sd(Intensity_IntegratedIntensity_G3Bp1))
+G3Bp1_intensities_plot <- left_join(mean_G3Bp1, metadata) |> slice(-3)|> slice(-5) |> ggplot(aes(x = factor(Name), y = Mean_G3Bp1_Intensity, fill = G3Bp1)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean G3Bp1 Intensity") + geom_errorbar(aes(ymin = Mean_G3Bp1_Intensity - SD_G3Bp1_Intensity, ymax = Mean_G3Bp1_Intensity + SD_G3Bp1_Intensity), width = 0.2)  + ggtitle("Mean G3Bp1 Intensity per Cell") + theme_bw() + scale_fill_manual(values = c("pos" = "forestgreen", "neg" = "gray")) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-HuR_intensities_plot <- Abs_intensities |> group_by(Name) |> summarize(Mean_HuR_Intensity = mean(Intensity_IntegratedIntensity_HUR), SD_HuR_Intensity = sd(Intensity_IntegratedIntensity_HUR)) |>  ggplot(aes(x = factor(Name), y = Mean_HuR_Intensity)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean HuR Intensity") + geom_errorbar(aes(ymin = Mean_HuR_Intensity - SD_HuR_Intensity, ymax = Mean_HuR_Intensity + SD_HuR_Intensity), width = 0.2)  + ggtitle("Mean HuR Intensity per Cell") + theme_bw()
+mean_HuR <- Abs_intensities |> group_by(Name) |> summarize(Mean_HuR_Intensity = mean(Intensity_IntegratedIntensity_HUR), SD_HuR_Intensity = sd(Intensity_IntegratedIntensity_HUR))
+HuR_intensities_plot <- left_join(mean_HuR, metadata)|> slice(-3)|> slice(-5)  |> ggplot(aes(x = factor(Name), y = Mean_HuR_Intensity, fill = HUR)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean HuR Intensity") + geom_errorbar(aes(ymin = Mean_HuR_Intensity - SD_HuR_Intensity, ymax = Mean_HuR_Intensity + SD_HuR_Intensity), width = 0.2)  + ggtitle("Mean HuR Intensity per Cell") + theme_bw() + scale_fill_manual(values = c("pos" = "red3", "neg" = "gray")) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-TIAR_intensities_plot <- Abs_intensities |> group_by(Name) |> summarize(Mean_TIAR_Intensity = mean(Intensity_IntegratedIntensity_TIAR), SD_TIAR_Intensity = sd(Intensity_IntegratedIntensity_TIAR)) |>  ggplot(aes(x = factor(Name), y = Mean_TIAR_Intensity)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean TIAR Intensity") + geom_errorbar(aes(ymin = Mean_TIAR_Intensity - SD_TIAR_Intensity, ymax = Mean_TIAR_Intensity + SD_TIAR_Intensity), width = 0.2)  + ggtitle("Mean TIAR Intensity per Cell") + theme_bw()
+mean_TIAR <- Abs_intensities |> group_by(Name) |> summarize(Mean_TIAR_Intensity = mean(Intensity_IntegratedIntensity_TIAR), SD_TIAR_Intensity = sd(Intensity_IntegratedIntensity_TIAR))
+TIAR_intensities_plot <- left_join(mean_TIAR, metadata) |> slice(-3) |> slice(-5) |> ggplot(aes(x = factor(Name), y = Mean_TIAR_Intensity, fill = TIAR)) + geom_bar(stat = "identity") + labs(x = "Image Number", y = "Mean TIAR Intensity") + geom_errorbar(aes(ymin = Mean_TIAR_Intensity - SD_TIAR_Intensity, ymax = Mean_TIAR_Intensity + SD_TIAR_Intensity), width = 0.2)  + ggtitle("Mean TIAR Intensity per Cell") + theme_bw() + scale_fill_manual(values = c("pos" = "gold1", "neg" = "gray")) + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
-DAPI_intensity_plot / G3Bp1_intensities_plot / HuR_intensities_plot / TIAR_intensities_plot
+
 # png(file="antibody_intensities.png", width=1000, height=750)
 # DAPI_intensity_plot / G3Bp1_intensities_plot / HuR_intensities_plot / TIAR_intensities_plot
 # dev.off()
 ```
+
+```{r,fig.height = 10, fig.width = 7}
+DAPI_intensity_plot / G3Bp1_intensities_plot / HuR_intensities_plot / TIAR_intensities_plot
+```
+#TEST
