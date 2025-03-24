@@ -1,0 +1,175 @@
+---
+title: "04_plot_stress_granules_in_cells"
+author: "Alex Beliavskaia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Notebook to proccess output from the Cell Profiler to count
+
+### Total number of SGs per total number of cells  
+```{r load libraries and data, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(patchwork)
+directory <- "/Users/beliavsa/Library/CloudStorage/OneDrive-BABRAHAM/experiments/OOPS_AB004_confocal/Nikon_A1/CP_output"
+csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
+data_list <- map(csv_files, read_csv)
+
+for (i in seq_along(csv_files)) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(basename(csv_files[i]))
+  # Assign the tibble to a variable with the file name
+  assign(file_name, data_list[[i]])
+}
+
+# (optional) remove the experiment prefix
+
+var_names <- ls(pattern = "AB_OOPS004_Nikon_z_stacked_CP_")
+for (old_name in var_names) {
+  # Generate the new name by removing prefix
+  new_name <- gsub("AB_OOPS004_Nikon_z_stacked_CP_", "", old_name)
+  
+  # Use assign to rename the variable
+  assign(new_name, get(old_name))
+  
+  # Optionally, remove the old variable if no longer needed
+  rm(list = old_name)
+}
+
+rm(i, new_name, old_name, var_names, file_name, directory, data_list, csv_files)
+```
+
+```{r infer metadata from filenames, include=FALSE}
+Metadata <- Image[, c("FileName_DAPI", "FileName_G3Bp1", "ImageNumber")]
+
+Metadata <- Metadata %>% 
+  mutate(Staining = case_when(
+    str_detect(FileName_DAPI, "7") ~ "DAPI_G3Bp1",
+    str_detect(FileName_DAPI, "8") ~ "DAPI_antiGFP",
+    str_detect(FileName_DAPI, "9") ~ "DAPI_only",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata %>% 
+  mutate(Cell_line = case_when(
+    str_detect(FileName_DAPI, "^[AB]") ~ "RAG2",
+    str_detect(FileName_DAPI, "^[CD]") ~ "ART",
+    str_detect(FileName_DAPI, "^[EF]") ~ "ART_ATM",
+    str_detect(FileName_DAPI, "^[GH]") ~ "ART_ATM_arsenite",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata %>% 
+  mutate(Treatment = case_when(
+    str_detect(FileName_DAPI, "^[ACEG]") ~ "untreated",
+    str_detect(FileName_DAPI, "^[BDFH]") ~ "imatinib",
+    TRUE ~ "ERROR"
+  ))
+
+for(i in 1:21){
+  if(Metadata$Staining[i]=="DAPI_antiGFP"){
+    Metadata$Cell_line[i] <- "Isotype_control"
+  }
+}
+
+for(i in 1:21){
+  if(Metadata$Staining[i]=="DAPI_only"){
+    Metadata$Cell_line[i] <- "NC"
+  }
+}
+
+for(i in 1:21){
+  if(Metadata$Treatment[i]=="untreated"){
+    Metadata$B_cells[i] <- "large_pre_B_cells"
+  }
+  if(Metadata$Treatment[i]=="imatinib"){
+    Metadata$B_cells[i] <- "small_pre_B_cells"
+  }
+}
+Metadata <- Metadata[, c(3,4,5,6,7)]
+```
+
+
+```{r preview metadata}
+Metadata
+```
+
+
+```{r total SGs per total cells}
+# choose only relevant columns
+Image_filtered <- Image[, c("ImageNumber", "Count_Granules_in_cells", "Count_cells", "Count_nuclei", "Mean_cells_Children_Granules_Count")]
+
+# join with metadata
+Image_filtered <- Image_filtered %>% left_join(Metadata, by = "ImageNumber")
+
+# reorder labels
+Image_filtered$Cell_line <- factor(Image_filtered$Cell_line, 
+                                           levels = c("RAG2", "ART", "ART_ATM", "ART_ATM_arsenite", "Isotype_control", "NC"))
+Image_filtered$Treatment <- factor(Image_filtered$B_cells, 
+                                   levels = c("large_pre_B_cells", "small_pre_B_cells"))
+
+# plot without controls
+Image_filtered |> filter(Staining=="DAPI_G3Bp1") |> filter(Cell_line!="ART_ATM_arsenite") |> ggplot(aes(x=Cell_line, y=Mean_cells_Children_Granules_Count, fill=B_cells)) +
+  geom_boxplot() + theme_minimal() + scale_fill_brewer(palette = "Set2") + ylab("Total number of SGs by total number of cells") + theme(axis.title.x = element_blank(), legend.position = "bottom", legend.title = element_blank())
+```
+
+### Proportion of cells with SGs
+```{r cells with SGs}
+
+# Use cells dataset
+
+cells_filtered <- cells[, c("ImageNumber", "ObjectNumber", "Children_Granules_Count")]
+cells_filtered <- cells_filtered %>% left_join(Metadata, by = "ImageNumber")
+
+cells_filtered$Cell_line <- factor(cells_filtered$Cell_line, 
+                                   levels = c("RAG2", "ART", "ART_ATM", "ART_ATM_arsenite", "Isotype_control", "NC"))
+cells_filtered$Treatment <- factor(cells_filtered$B_cells, 
+                                   levels = c("large_pre_B_cells", "small_pre_B_cells"))
+
+
+### Create a new data frame for number of cells and number of cells with SGs
+new_df <- data.frame(ImageNumber = 1:21,
+  Cell_count = 0,
+  Cells_with_SG_count = 0
+)
+cells_with_SG <- as_tibble(new_df)
+rm(new_df)
+
+### Copy number of cells from Image dataset
+for(i in 1:dim(cells_with_SG)[1]){
+  cells_with_SG$Cell_count[i] <- Image_filtered$Count_cells[i]
+}
+
+
+### Count number of cells with any amount of granules
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_Granules_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Cells_with_SG_count[y] <- count}}}
+    count <- 0
+}
+ 
+cells_with_SG <- cells_with_SG %>% left_join(Metadata, by = "ImageNumber") 
+cells_with_SG <- cells_with_SG %>% mutate(Ratio = Cells_with_SG_count/Cell_count * 100)
+
+
+cells_with_SG$Cell_line <- factor(cells_with_SG$Cell_line, 
+                                   levels = c("RAG2", "ART", "ART_ATM", "ART_ATM_arsenite", "Isotype_control", "NC"))
+cells_with_SG$Treatment <- factor(cells_with_SG$B_cells, 
+                                  levels = c("large_pre_B_cells", "small_pre_B_cells"))
+
+cells_with_SG |> filter(Cell_line == "RAG2" | Cell_line == "ART" | Cell_line == "ART_ATM") |> ggplot(aes(x=Cell_line, y=Ratio, fill=B_cells)) +
+  geom_boxplot() + theme_minimal() + scale_fill_brewer(palette = "Set2") +
+  labs(title = "Percentage of cells with stress granules") + theme(axis.title.x = element_blank()) +
+  ylab("Percentage of cells with stress granules") +
+  theme(axis.title.x = element_blank(), legend.position="bottom", legend.title = element_blank()) 
+
+```
+
+### Dictribution of SGs among cells
+
+
