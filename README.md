@@ -9,6 +9,7 @@ If imaging with HT.ai omit FiJi script and start with 02_CP_measure_intensities.
 
 To assess the overall signal intensity per cell per sample, follow the instructions in 03_Intensities_graphs.Rmd or 03_Intensity_graphs.R.
 
+## Assesing number and distribution of stress granules
 To visualise the disctribution of stress granules in cells use 04_plot_stress_granules.Rmd
 
 ![image](https://github.com/user-attachments/assets/3f4e978b-70e4-476c-9ce7-2ac78946a8c9)
