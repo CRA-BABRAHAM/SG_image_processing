@@ -172,4 +172,39 @@ cells_with_SG |> filter(Cell_line == "RAG2" | Cell_line == "ART" | Cell_line == 
 
 ### Dictribution of SGs among cells
 
+```{r}
+cells_filtered <- cells_filtered |> mutate(Condition = paste(Cell_line, Treatment, sep = "_"))
+cells_for_histogram <- cells_filtered[, c("Condition", "Children_Granules_Count")]
+
+cells_for_histogram <- cells_for_histogram %>% filter(Condition == "ART_ATM_large_pre_B_cells" | 
+      Condition == "ART_ATM_small_pre_B_cells" | Condition == "ART_large_pre_B_cells" |
+      Condition == "ART_small_pre_B_cells" | Condition == "RAG2_large_pre_B_cells" |
+      Condition == "RAG2_small_pre_B_cells")
+
+cells_for_histogram$Count <- ifelse(cells_for_histogram$Children_Granules_Count >= 5, "5+", cells_for_histogram$Children_Granules_Count)
+
+summary <- cells_for_histogram[, c("Condition", "Count")]
+table <-table(summary)
+
+summary <- as_tibble(table)
+summary$fraction <- 0
+
+for (i in 1:nrow(summary)) {
+  cond <- summary[i, ]$Condition
+  subsum <- sum(summary[summary$Condition == cond, ]$n)
+  cat(sprintf("Row %d, sum %d, cond %s\n",i,subsum,cond))
+  summary[i,]$fraction <- 100*summary[i,]$n/subsum
+}
+
+summary$Condition <- factor(summary$Condition, 
+      levels = c("RAG2_large_pre_B_cells", "ART_large_pre_B_cells", "ART_ATM_large_pre_B_cells", "RAG2_small_pre_B_cells", "ART_small_pre_B_cells", "ART_ATM_small_pre_B_cells"))
+
+p1 <- ggplot(summary, aes(x=Count,y=fraction,fill=Condition)) + geom_bar(stat="identity", position="dodge") + theme_bw() + facet_wrap(~Condition) + theme(legend.position="none") + xlab("Number of SGs")
+
+sum3 <- summary %>% filter(Count != 0)
+p2 <- ggplot(sum3, aes(x=Count,y=fraction,fill=Condition)) + geom_bar(stat="identity", position="dodge") + theme_bw() + facet_wrap(~Condition) + theme(legend.position="none") + xlab("Number of SGs")
+
+p1 / p2
+```
+
 
