@@ -1,0 +1,172 @@
+### Load libraries and files as tibles
+```{r load libraries and data, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(patchwork)
+library(knitr)
+
+directory <- "C:/Users/anaso/OneDrive - BABRAHAM/experiments/OOPS_AB030_CN/tiff_for_cell_profiler_FS1"
+csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
+data_list <- map(csv_files, read_csv)
+
+for (i in seq_along(csv_files)) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(basename(csv_files[i]))
+  # Assign the tibble to a variable with the file name
+  assign(file_name, data_list[[i]])
+}
+```
+
+### Remove prefix from file titles
+```{r read_the_files, echo = T, message=FALSE}
+
+# (optional) remove the experiment prefix
+var_names <- ls(pattern = "v2_")
+for (old_name in var_names) {
+  # Generate the new name by removing prefix
+  new_name <- gsub("v2_", "", old_name)
+  
+  # Use assign to rename the variable
+  assign(new_name, get(old_name))
+  
+  # Optionally, remove the old variable if no longer needed
+  rm(list = old_name)
+}
+
+rm(i, new_name, old_name, var_names, file_name, directory, data_list, csv_files)
+```
+
+### Create metadata
+```{r infer metadata from filenames, echo=FALSE}
+
+Metadata <- Image[, c("FileName_G3Bp1", "ImageNumber")]
+
+Metadata <- Metadata %>% 
+  mutate(Stressor = case_when(
+    str_detect(FileName_G3Bp1, "Sor_0.6M") ~ "Sorbitol 0.6 M",
+    str_detect(FileName_G3Bp1, "Sor_0.4M") ~ "Sorbitol 0.4 M",
+    str_detect(FileName_G3Bp1, "Sor_1M") ~ "Sorbitol 1 M",
+    str_detect(FileName_G3Bp1, "Ars_1mM") ~ "NaAsO2 1 mM",
+    str_detect(FileName_G3Bp1, "Ars_0.5mM") ~ "NaAsO2 0.5 mM",
+    str_detect(FileName_G3Bp1, "Ars_0.2mM") ~ "NaAsO2 0.2 mM",
+    str_detect(FileName_G3Bp1, "40C") ~ "Heat 40ºC",
+    str_detect(FileName_G3Bp1, "44C") ~ "Heat 44ºC",
+    str_detect(FileName_G3Bp1, "untr") ~ "Untreated",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata %>% 
+  mutate(Stressor_type = case_when(
+    str_detect(FileName_G3Bp1, "Sor_0.6M") ~ "sorbitol",
+    str_detect(FileName_G3Bp1, "Sor_0.4M") ~ "sorbitol",
+    str_detect(FileName_G3Bp1, "Sor_1M") ~ "sorbitol",
+    str_detect(FileName_G3Bp1, "Ars_1mM") ~ "arsenite",
+    str_detect(FileName_G3Bp1, "Ars_0.5mM") ~ "arsenite",
+    str_detect(FileName_G3Bp1, "Ars_0.2mM") ~ "arsenite",
+    str_detect(FileName_G3Bp1, "40C") ~ "heat",
+    str_detect(FileName_G3Bp1, "44C") ~ "heat",
+    str_detect(FileName_G3Bp1, "untr") ~ "unstressed",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata[,c(2,3,4)]
+```
+
+### Filter data within Image and calculate number of SGs per cell
+```{r filter total SGs per total cells, echo=FALSE}
+# choose only relevant columns
+Image_filtered <- Image[, c("ImageNumber", "Count_SG_in_cells" , "Count_cell")]
+
+# join with metadata
+Image_filtered <- Image_filtered %>% left_join(Metadata, by = "ImageNumber")
+Image_filtered <- Image_filtered |> mutate(SG_per_cell = Count_SG_in_cells/Count_cell)
+```
+
+### Plots of average number of SGs per total number of cells
+```{r total SGs per total cells, echo=FALSE}
+#reorder labels
+Image_filtered$Stressor <- factor(Image_filtered$Stressor, levels = c("Untreated", "Heat 40ºC","Heat 44ºC","NaAsO2 0.2 mM","NaAsO2 0.5 mM","NaAsO2 1 mM","Sorbitol 0.4 M", "Sorbitol 0.6 M", "Sorbitol 1 M"))
+
+#filter
+cells_with_SG_filtered <- cells_with_SG |> filter(Stressor != "NaAsO2 0.2 mM" | Stressor != "Sorbitol 1 M")
+
+#set colours
+manual_colors <- c("arsenite" = "#00BFC4" , "unstressed" = "#F8766D" , "sorbitol" = "#C77CFF" , "heat" = "#7CAE00")   
+
+#Number of SGs per cell plot - G3BP1
+SG_mean <- Image_filtered |> ggplot(aes(x=Stressor, y=SG_per_cell, fill = Stressor_type)) +
+  geom_col() + labs(title = "Total number of SGs by total number of cells") + 
+  theme_minimal() + 
+  scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 30)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+```
+
+### Filter and calculate percentage of cells with SGs
+```{r percentage cells with SGs, echo=FALSE}
+
+# Use cells dataset
+cells_filtered <- cell[, c("ImageNumber", "ObjectNumber", "Children_SGs_Count")]
+cells_filtered <- cells_filtered %>% left_join(Metadata, by = "ImageNumber")
+
+
+### Create a new data frame for number of cells and number of cells with SGs
+new_df <- data.frame(ImageNumber = 1:7,
+  Cell_count = 0,
+  Cells_with_SG_count = 0
+)
+cells_with_SG <- as_tibble(new_df)
+rm(new_df)
+
+### Copy number of cells from Image dataset
+for(i in 1:dim(cells_with_SG)[1]){
+  cells_with_SG$Cell_count[i] <- Image_filtered$Count_cell[i]
+}
+
+
+### Count number of cells with any amount of granules
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_SGs_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Cells_with_SG_count[y] <- count}}}
+    count <- 0
+}
+ 
+cells_with_SG <- cells_with_SG %>% left_join(Metadata, by = "ImageNumber") 
+cells_with_SG <- cells_with_SG %>% mutate(Ratio = Cells_with_SG_count/Cell_count * 100)
+```
+
+### Percentage of cells with stress granules plots
+```{r plot data as bars, fig.width=10, fig.height=17}
+
+#reorder labels
+cells_with_SG$Stressor <- factor(cells_with_SG$Stressor, levels = c("Untreated", "Heat 40ºC","Heat 44ºC","NaAsO2 0.2 mM","NaAsO2 0.5 mM","NaAsO2 1 mM","Sorbitol 0.4 M", "Sorbitol 0.6 M", "Sorbitol 1 M"))
+
+#filter
+cells_with_SG_filtered <- cells_with_SG |> filter(Stressor != "NaAsO2 0.2 mM" | Stressor != "Sorbitol 1 M")
+
+#percentage SGs plot for G3BP1
+percentage_cells_with_SG <- cells_with_SG_filtered |> ggplot(aes(x=Stressor, y=Ratio, fill=Stressor_type)) +
+   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  labs( title = "G3BP1-positve SGs" , 
+    y = "% cells with SGs",
+  ) + theme_minimal() + 
+   scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 30)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+```

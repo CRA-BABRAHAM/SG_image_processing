@@ -1,0 +1,119 @@
+### Load libraries and files as tibles
+```{r load libraries and data, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(purrr)
+library(patchwork)
+
+directory <- "C:/Users/anaso/OneDrive - BABRAHAM/Experiments/OOPS_AB023_titration/tiff_for_cell_profiler"
+prefix <- "OOPS_AB023_G3Bp1_intensities_"
+csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
+data_list <- map(csv_files, read_csv)
+
+for (i in seq_along(csv_files)) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(basename(csv_files[i]))
+  # Assign the tibble to a variable with the file name
+  assign(file_name, data_list[[i]])
+}
+```
+
+### Remove prefix from file titles
+```{r read_the_files, echo = T, message=FALSE}
+
+# (optional) rename variables by removing the experiment prefix
+var_names <- ls(pattern = prefix)
+for (old_name in var_names) {
+  # Generate the new name by removing "prefix"
+  new_name <- gsub(prefix, "", old_name)
+  
+  # Use assign to rename the variable
+  assign(new_name, get(old_name))
+  rm(list = old_name)
+}
+
+rm(old_name, csv_files, data_list, directory, file_name, i, new_name, prefix, var_names)
+ls()
+```
+
+
+### Filter the data and include metadata
+```{r filtering metadata}
+colnames(metadata)[2] <- "ImageNumber"
+
+Abs_intensities <- Cells |> select(ImageNumber, ObjectNumber, Intensity_IntegratedIntensity_G3Bp1, Intensity_IntegratedIntensity_HUR, Intensity_IntegratedIntensity_TIAR)
+Abs_intensities <- left_join(Abs_intensities, metadata, by = "ImageNumber")
+
+```
+
+### Intensities plot per marker per sample
+```{r plots, fig.height = 10, fig.width = 7}
+#filtering and reordering labels
+Abs_intensities <- Abs_intensities |> 
+  filter(Name != "Full stain" | Name != "AF647 control" | Name != "PE control" | Name != "G3Bp2 1:500" | Name != "Unstained")
+metadata <- metadata |> 
+  filter(Name != "Full stain" | Name != "AF647 control" | Name != "PE control" | Name != "G3Bp2 1:500" | Name != "Unstained")
+metadata$Name <- 
+  factor(metadata$Name, levels = c("G3Bp1 1:400", "G3Bp1 1:800", "TIAR 1:800", "TIAR 1:1600", "HuR 1:50", "HuR 1:100"))
+
+
+mean_G3Bp1 <- Abs_intensities |> group_by(Name) |> summarize(Mean_G3Bp1_Intensity = mean(Intensity_IntegratedIntensity_G3Bp1), SD_G3Bp1_Intensity = sd(Intensity_IntegratedIntensity_G3Bp1))
+
+#G3Bp1 intensities plot
+G3Bp1_intensities_plot <- left_join(mean_G3Bp1, metadata) |> 
+  ggplot(aes(x = factor(Name), y = Mean_G3Bp1_Intensity, fill = G3Bp1)) + 
+  geom_bar(stat = "identity") + labs(x = "Image Number", y = "G3Bp1 intensity") + 
+  geom_errorbar(aes(ymin = Mean_G3Bp1_Intensity - SD_G3Bp1_Intensity, ymax = Mean_G3Bp1_Intensity + SD_G3Bp1_Intensity), width = 0.2)  + 
+  ggtitle("Mean G3Bp1 intensity / cell") + theme_bw() + scale_fill_manual(values = c("pos" = "forestgreen", "neg" = "gray")) + 
+  scale_y_continuous(limits = c(0, 25)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+
+
+mean_TIAR <- Abs_intensities |> group_by(Name) |> summarize(Mean_TIAR_Intensity = mean(Intensity_IntegratedIntensity_TIAR), SD_TIAR_Intensity = sd(Intensity_IntegratedIntensity_TIAR))
+
+#TIAR intensities plot
+TIAR_intensities_plot <- left_join(mean_TIAR, metadata)|> 
+  ggplot(aes(x = factor(Name), y = Mean_TIAR_Intensity, fill = TIAR)) + 
+  geom_bar(stat = "identity") + labs(x = "Image Number", y = "TIAR intensity") + 
+  geom_errorbar(aes(ymin = Mean_TIAR_Intensity - SD_TIAR_Intensity, ymax = Mean_TIAR_Intensity + SD_TIAR_Intensity), width = 0.2)  + 
+  ggtitle("Mean TIAR intensity / cell") + theme_bw() + 
+  scale_fill_manual(values = c("pos" = "magenta3", "neg" = "gray")) + 
+  scale_y_continuous(limits = c(0, 2)) +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+ 
+
+mean_HuR <- Abs_intensities |> group_by(Name) |> summarize(Mean_HuR_Intensity = mean(Intensity_IntegratedIntensity_HUR), SD_HuR_Intensity = sd(Intensity_IntegratedIntensity_HUR))
+
+#HuR intensities plot
+HuR_intensities_plot <- left_join(mean_HuR, metadata)|> 
+  ggplot(aes(x = factor(Name), y = Mean_HuR_Intensity, fill = HUR)) + 
+  geom_bar(stat = "identity") + labs(x = "Image Number", y = "HuR intensity") + 
+  geom_errorbar(aes(ymin = Mean_HuR_Intensity - SD_HuR_Intensity, ymax = Mean_HuR_Intensity + SD_HuR_Intensity), width = 0.2) + 
+  ggtitle("Mean HuR intensity / cell") + theme_bw() + 
+  scale_fill_manual(values = c("pos" = "gold1", "neg" = "gray")) + 
+  scale_y_continuous(limits = c(0, 2)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+```
+
+

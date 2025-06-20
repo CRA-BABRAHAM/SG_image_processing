@@ -1,0 +1,338 @@
+### Load libraries and files as tibles
+```{r load libraries and data, include=FALSE}
+library(tidyverse)
+library(patchwork)
+library(knitr)
+
+directory <- "C:/Users/anaso/OneDrive - BABRAHAM/experiments/OOPS_AB034_CN/tif for cellprofiler"
+csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
+data_list <- map(csv_files, read_csv)
+
+for (i in seq_along(csv_files)) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(basename(csv_files[i]))
+  # Assign the tibble to a variable with the file name
+  assign(file_name, data_list[[i]])
+}
+```
+
+
+### Remove prefix from file titles
+```{r read_the_files, echo = T, message=FALSE}
+
+# (optional) rename variables by removing the experiment prefix
+var_names <- ls(pattern = "OOPS_AB034_")
+for (old_name in var_names) {
+  # Generate the new name by removing "prefix"
+  new_name <- gsub("OOPS_AB034_", "", old_name)
+  
+  # Use assign to rename the variable
+  assign(new_name, get(old_name))
+  rm(list = old_name)
+}
+
+```
+
+
+### Create metadata
+```{r infer metadata from filenames, include=FALSE}
+
+Metadata <- Image[, c("FileName_G3Bp1", "ImageNumber")]
+
+Metadata <- Metadata |>
+  mutate(Stressor = case_when(
+    str_detect(FileName_G3Bp1, "imat") ~ "Imatinib treated",
+    str_detect(FileName_G3Bp1, "untr") ~ "Untreated",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata |> 
+  mutate(cell_line = case_when(
+    str_detect(FileName_G3Bp1, "WT") ~ "WT v-abl",
+    str_detect(FileName_G3Bp1, "ART") ~ "ART KO",
+    TRUE ~ "ERROR"
+  ))
+
+
+Metadata <- Metadata[c(2,3,4)]
+```
+
+
+### Filter data within Image and calculate number of SGs per cell
+```{r filter total SGs per total cells, echo=FALSE}
+
+# choose only relevant columns
+Image_filtered <- Image[, c("ImageNumber", "Count_SG_G3Bp1_in_cells" , "Count_SG_G3Bp2_in_cells" , "Count_G3Bp1_G3Bp2_SG_in_cells" , "Count_cell")]
+
+# join with metadata
+Image_filtered <- Image_filtered |> left_join(Metadata, by = "ImageNumber")
+Image_filtered <- Image_filtered |> mutate(SG_per_cell_G1 = Count_SG_G3Bp1_in_cells/Count_cell)
+Image_filtered <- Image_filtered |> mutate(SG_per_cell_G2 = Count_SG_G3Bp2_in_cells/Count_cell)
+Image_filtered <- Image_filtered |> 
+  mutate(SG_per_cell_G1G2 = Count_G3Bp1_G3Bp2_SG_in_cells/Count_cell)
+```
+
+### Summarise data per cell_line and Stressor
+```{r summarise data per cell_line and stressor based on number of SGs per cell}
+
+Image_filtered_summary <- Image_filtered %>%
+  group_by(cell_line, Stressor) %>%
+  summarise(
+    n = n(),                     # Count observations in each group
+    mean_SG_per_cell_G1 = mean(SG_per_cell_G1),    # Calculate mean Ratio
+    sd_Ratio_G3Bp1 = sd(SG_per_cell_G1),        # Calculate standard deviation
+    se_Ratio_G3Bp1 = sd(SG_per_cell_G1) / sqrt(n()), # Calculate standard error
+    mean_Ratio_G3Bp2 = mean(SG_per_cell_G2),    # Calculate mean Ratio
+    sd_Ratio_G3Bp2 = sd(SG_per_cell_G2),        # Calculate standard deviation
+    se_Ratio_G3Bp2 = sd(SG_per_cell_G2) / sqrt(n()), # Calculate standard error
+    mean_Ratio_G3Bp1_G3Bp2 = mean(SG_per_cell_G1G2),    # Calculate mean Ratio
+    sd_Ratio_G3Bp1_G3Bp2 = sd(SG_per_cell_G1G2),        # Calculate standard deviation
+    se_Ratio_G3Bp1_G3Bp2 = sd(SG_per_cell_G1G2) / sqrt(n()), # Calculate standard error
+   ) %>%
+  ungroup()
+```
+
+### Plots of average number of SGs per total number of cells
+```{r total SGs per total cells, echo=FALSE}
+
+#change order of labels
+Image_filtered_summary$Stressor <- factor(Image_filtered_summary$Stressor, 
+                                  levels = c("Untreated", "Imatinib treated"))
+# set colours
+manual_colors <- c("Imatinib treated" = "#00bfc4", "Untreated" = "#F8766D")  
+
+#Number of SGs per cell plot - G3BP1
+SG_mean_G3Bp1 <- Image_filtered_summary |>
+  ggplot(aes(x = cell_line, y = mean_SG_per_cell_G1, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_SG_per_cell_G1 - se_Ratio_G3Bp1, ymax = mean_SG_per_cell_G1 + se_Ratio_G3Bp1),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Average number of G3Bp1-positive SGs",
+    y = "Average number of SGs per cell",
+  ) + theme_minimal() + 
+  scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 1.8)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+
+#Number of SGs per cell plot - G3BP2
+SG_mean_G3Bp2 <- Image_filtered_summary |>
+  ggplot(aes(x = cell_line, y = mean_Ratio_G3Bp2, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_Ratio_G3Bp2 - se_Ratio_G3Bp2, ymax = mean_Ratio_G3Bp2 + se_Ratio_G3Bp2),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Average number of G3Bp2-positive SGs",
+    y = "Average number of SGs per cell",
+  ) + theme_minimal() + 
+  scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 1.8)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+
+#Number of SGs per cell plot - G3BP1/G3BP2
+SG_mean_G1_G2 <- Image_filtered_summary |>
+  ggplot(aes(x = cell_line, y = mean_Ratio_G3Bp1_G3Bp2, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_Ratio_G3Bp1_G3Bp2 - se_Ratio_G3Bp1_G3Bp2, ymax = mean_Ratio_G3Bp1_G3Bp2 + se_Ratio_G3Bp1_G3Bp2),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Average number of SGs per cell (based on G3Bp1/G3Bp2 signal overlap)",
+    y = "Average number of SGs per cell",
+  ) + theme_minimal() + 
+  scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 1.8)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+```
+
+
+
+### Filter and calculate percentage of cells with SGs
+```{r percentage cells with SGs, echo=FALSE}
+
+# Use cells dataset
+cells_filtered <- cell[, c("ImageNumber", "ObjectNumber", "Children_SG_G3Bp1_Count", "Children_SG_G3Bp2_Count" , "Children_G3Bp1_G3Bp2_SG_Count")]
+cells_filtered <- cells_filtered %>% left_join(Metadata, by = "ImageNumber")
+
+### Create a new data frame for number of cells and number of cells with SGs
+new_df <- data.frame(ImageNumber = 1:53,
+                     Cell_count = 0,
+                     Cells_with_SG_G3Bp1_count = 0,
+                     Cells_with_SG_G3Bp2_count = 0,
+                     Children_G3Bp1_G3Bp2_SG_Count = 0)
+
+cells_with_SG <- as_tibble(new_df)
+rm(new_df)
+
+### Copy number of cells from Image dataset
+for(i in 1:dim(cells_with_SG)[1]){
+  cells_with_SG$Cell_count[i] <- Image_filtered$Count_cell[i]
+}
+
+### Count number of cells with any amount of granules based on G3Bp1
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_SG_G3Bp1_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Cells_with_SG_G3Bp1_count[y] <- count}}}
+  count <- 0
+}
+
+
+### Count number of cells with any amount of granules based on G3Bp2
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_SG_G3Bp2_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Cells_with_SG_G3Bp2_count[y] <- count}}}
+  count <- 0
+}
+
+### Count number of cells with any amount of granules based on G3Bp1 and G3Bp2
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_G3Bp1_G3Bp2_SG_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Children_G3Bp1_G3Bp2_SG_Count[y] <- count}}}
+  count <- 0
+}
+
+cells_with_SG <- cells_with_SG |> left_join(Metadata, by = "ImageNumber") 
+cells_with_SG <- cells_with_SG |> mutate(Ratio_G3Bp1 = Cells_with_SG_G3Bp1_count/Cell_count * 100)
+cells_with_SG <- cells_with_SG |> mutate(Ratio_G3Bp2 = Cells_with_SG_G3Bp2_count/Cell_count * 100)
+cells_with_SG <- cells_with_SG |> 
+  mutate(Ratio_G3Bp1_G3Bp2 = Children_G3Bp1_G3Bp2_SG_Count/Cell_count * 100)
+```
+
+### Summarise data per cell_line and Stressor
+```{r summarise data per cell_line and Stressor based on percentage of cells with SGs}
+
+cells_with_SG_summary <- cells_with_SG %>%
+  group_by(cell_line, Stressor) %>%
+  summarise(
+    n = n(),                   # Count observations in each group
+    mean_Ratio_G3Bp1 = mean(Ratio_G3Bp1),    # Calculate mean Ratio
+    sd_Ratio_G3Bp1 = sd(Ratio_G3Bp1),        # Calculate standard deviation
+    se_Ratio_G3Bp1 = sd(Ratio_G3Bp1) / sqrt(n()), # Calculate standard error
+    mean_Ratio_G3Bp2 = mean(Ratio_G3Bp2),    # Calculate mean Ratio
+    sd_Ratio_G3Bp2 = sd(Ratio_G3Bp2),        # Calculate standard deviation
+    se_Ratio_G3Bp2 = sd(Ratio_G3Bp2) / sqrt(n()), # Calculate standard error
+    mean_Ratio_G3Bp1_G3Bp2 = mean(Ratio_G3Bp1_G3Bp2),    # Calculate mean Ratio
+    sd_Ratio_G3Bp1_G3Bp2 = sd(Ratio_G3Bp1_G3Bp2),        # Calculate standard deviation
+    se_Ratio_G3Bp1_G3Bp2 = sd(Ratio_G3Bp1_G3Bp2) / sqrt(n()), # Calculate standard error
+   ) %>%
+  ungroup()
+
+``` 
+
+### Percentage of cells with stress granules plots
+```{r plot data as bars, fig.width=10, fig.height=17}
+
+#change order of labels
+cells_with_SG_summary$Stressor <- factor(cells_with_SG_summary$Stressor, 
+                                  levels = c("Untreated", "Imatinib treated"))
+
+#percentage plot for G3BP1
+percentage_cells_with_SG_G3Bp1 <- cells_with_SG_summary |>
+  ggplot(aes(x = cell_line, y = mean_Ratio_G3Bp1, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_Ratio_G3Bp1 - se_Ratio_G3Bp1, ymax = mean_Ratio_G3Bp1 + se_Ratio_G3Bp1),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Percentage of cells with G3Bp1-positive SGs",
+    y = "% cells with SGs",
+  ) + theme_minimal() + 
+   scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 6)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+
+#PEercentage plot for G3BP2
+percentage_cells_with_SG_G3Bp2 <- cells_with_SG_summary |>
+  ggplot(aes(x = cell_line, y = mean_Ratio_G3Bp2, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_Ratio_G3Bp2 - se_Ratio_G3Bp2, ymax = mean_Ratio_G3Bp2 + se_Ratio_G3Bp2),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Percentage of cells with G3Bp2-positive SGs",
+    y = "% cells with SGs",
+  ) + theme_minimal() + 
+   scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 4)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+
+#Percentage plot for G3BP1/G3BP2
+percentage_cells_with_SG_G1_G2 <- cells_with_SG_summary |>
+  ggplot(aes(x = cell_line, y = mean_Ratio_G3Bp1_G3Bp2, fill = Stressor)) + 
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +  
+  geom_errorbar(
+    aes(ymin = mean_Ratio_G3Bp1_G3Bp2 - se_Ratio_G3Bp1_G3Bp2, ymax = mean_Ratio_G3Bp1_G3Bp2 + se_Ratio_G3Bp1_G3Bp2),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) +
+  labs(
+    title = "Percentage of cells with G3Bp1/G3Bp2-positive SGs",
+    y = "% cells with SGs",
+  ) + theme_minimal() + 
+   scale_fill_manual(values = manual_colors) + scale_y_continuous(limits = c(0, 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom", legend.title = element_blank(), axis.title.x = element_blank()) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       )
+```

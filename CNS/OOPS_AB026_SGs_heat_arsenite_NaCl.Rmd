@@ -1,0 +1,192 @@
+
+### Load libraries and files as tibles
+```{r load libraries and data, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(patchwork)
+
+directory <- "/Users/anaso/OneDrive - BABRAHAM/experiments/OOPS_AB026_CN/zstacks/tif_for_cell_profiler"
+csv_files <- list.files(path = directory, pattern = ".csv", full.names = TRUE)
+data_list <- map(csv_files, read_csv)
+
+for (i in seq_along(csv_files)) {
+  # Extract the file name without extension
+  file_name <- tools::file_path_sans_ext(basename(csv_files[i]))
+  # Assign the tibble to a variable with the file name
+  assign(file_name, data_list[[i]])
+}
+
+
+rm(i, new_name, old_name, var_names, file_name, directory, data_list, csv_files)
+```
+
+### Create metadata
+```{r infer metadata from filenames, include=FALSE}
+Metadata <- Image[, c("FileName_G3Bp1", "ImageNumber")]
+
+
+Metadata <- Metadata %>% 
+  mutate(genotype = case_when(
+    str_detect(FileName_G3Bp1, "WT") ~ "WT v-abl"
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata %>% 
+  mutate(Stressor = case_when(
+    str_detect(FileName_G3Bp1, "unt") ~ "Untreated",
+    str_detect(FileName_G3Bp1, "heat") ~ "Heat 44ºC",
+    str_detect(FileName_G3Bp1, "NaCl") ~ "NaCl 200 mM",
+    str_detect(FileName_G3Bp1, "ars") ~ "NaAsO2 0.5 mM",
+    TRUE ~ "ERROR"
+  ))
+
+Metadata <- Metadata[, c(2,3,4)]
+```
+
+
+### Filter data within Image and calculate number of SGs per cell
+```{r filter total SGs per total cells, echo=FALSE}
+
+# choose only relevant columns
+Image_filtered <- Image[, c("ImageNumber", "Count_SG_in_cells", "Count_cells")]
+
+# join with metadata
+Image_filtered <- Image_filtered %>% left_join(Metadata, by = "ImageNumber")
+Image_filtered <- Image_filtered |> mutate(SG_per_cell = Count_SG_in_cells/Count_cells)
+```
+
+### Summarise data per gebotype and Stressor
+```{r summarise data per genotype and stressor based on number of SGs per cell}
+
+Image_filtered_summary <- Image_filtered %>%
+  group_by(genotype, Stressor) %>%
+  summarise(
+    n = n(),                     # Count observations in each group
+    mean_SG_per_cell = mean(SG_per_cell),    # Calculate mean Ratio
+    sd_Ratio_SG = sd(SG_per_cell),        # Calculate standard deviation
+    se_Ratio_SG = sd(SG_per_cell) / sqrt(n()), # Calculate standard error
+    mean_Ratio_PB = mean(PB_per_cell),    # Calculate mean Ratio
+    sd_Ratio_PB = sd(PB_per_cell),        # Calculate standard deviation
+    se_Ratio_PB = sd(PB_per_cell) / sqrt(n()), # Calculate standard error
+  ) %>%
+  ungroup()
+```
+### Plots of average number of SGs per total number of cells
+```{r total SGs per total cells, echo=FALSE}
+
+#reorder labels
+Image_filtered_summary$Stressor <- factor(Image_filtered_summary$Stressor, levels = c("Untreated", "Heat 44ºC", "NaAsO2 0.5 mM", "NaCl 200 mM"))
+
+#filter
+Image_filtered_summary <- Image_filtered_summary |> filter(genotype == "WT v-abl") 
+
+# set colours
+manual_colors <- c("NaAsO2 0.5 mM" = "#00BFC4", "Untreated" = "#F8766D", "Heat 44ºC" = "#7CAE00", "NaCl 200 mM" = "#C77CFF")  
+
+
+#Number of SGs per cell plot - G3BP1
+SG_mean <- Image_filtered_summary |> ggplot(aes(x=Stressor, y=mean_SG_per_cell, fill = Stressor)) + geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(
+    aes(ymin = mean_SG_per_cell - se_Ratio_SG, ymax = mean_SG_per_cell + se_Ratio_SG),
+    width = 0.2, # Width of the error bar caps
+    position = position_dodge(width = 0.9) # Ensure error bars align with dodged bars
+  ) + 
+  theme_minimal() + theme(axis.title.x = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", legend.title = element_blank()) + 
+  labs(title = "Total number of SGs by total number of cells") + facet_wrap(~ genotype) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       ) + 
+   scale_fill_manual(values = manual_colors)
+```
+
+### Filter and calculate percentage of cells with SGs
+```{r percentage cells with SGs, echo=FALSE}
+
+# Use cells dataset
+cells_filtered <- cells[, c("ImageNumber", "ObjectNumber", "Children_SG_Count")]
+cells_filtered <- cells_filtered %>% left_join(Metadata, by = "ImageNumber")
+
+
+### Create a new data frame for number of cells and number of cells with SGs
+new_df <- data.frame(ImageNumber = 1:8,
+  Cell_count = 0,
+  Cells_with_SG_count = 0
+)
+cells_with_SG <- as_tibble(new_df)
+rm(new_df)
+
+### Copy number of cells from Image dataset
+for(i in 1:dim(cells_with_SG)[1]){
+  cells_with_SG$Cell_count[i] <- Image_filtered$Count_cells[i]
+}
+
+
+### Count number of cells with any amount of granules
+count = 0
+
+for(y in 1:dim(cells_with_SG)[1]){ 
+  for(i in 1:dim(cells_filtered)[1]){
+    if(cells_filtered$ImageNumber[i] == y){
+      if(cells_filtered$Children_SG_Count[i] > 0){
+        count = count + 1
+        cells_with_SG$Cells_with_SG_count[y] <- count}}}
+    count <- 0
+}
+ 
+cells_with_SG <- cells_with_SG %>% left_join(Metadata, by = "ImageNumber") 
+cells_with_SG <- cells_with_SG %>% mutate(Ratio_SG = Cells_with_SG_count/Cell_count * 100)
+```
+
+### Summarise data per genotype and Stressor
+```{r summarise data per gebotype and Stressor based on percentage of cells with SGs}
+
+cells_with_SG_summary <- cells_with_SG %>%
+  group_by(genotype, Stressor) %>%
+  summarise(
+    n = n(),                     # Count observations in each group
+    mean_Ratio_SG = mean(Ratio_SG),    # Calculate mean Ratio
+    sd_Ratio_SG = sd(Ratio_SG),        # Calculate standard deviation
+    se_Ratio_SG = sd(Ratio_SG) / sqrt(n()), # Calculate standard error
+  ) %>%
+  ungroup()
+
+cells_with_PB_summary <- cells_with_PB %>%
+  group_by(genotype, Stressor) %>%
+  summarise( 
+    n = n(), 
+    mean_Ratio_PB = mean(Ratio_PB),    # Calculate mean Ratio
+    sd_Ratio_PB = sd(Ratio_PB),        # Calculate standard deviation
+    se_Ratio_PB = sd(Ratio_PB) / sqrt(n()), # Calculate standard error
+  ) %>%
+  ungroup()
+```
+
+### Percentage of cells with stress granules plots
+```{r plot data as bars, fig.width=10, fig.height=17}
+
+#reorder labels
+cells_with_SG$Stressor <- factor(cells_with_SG$Stressor, levels = c("Untreated", "Heat 44ºC", "NaAsO2 0.5 mM", "NaCl 200 mM"))
+
+# set colours
+manual_colors <- c("NaAsO2 0.5 mM" = "#00BFC4", "Untreated" = "#F8766D", "Heat 44ºC" = "#7CAE00", "NaCl 200 mM" = "#C77CFF")  
+
+#filter
+cells_with_SG_filtered <- cells_with_SG |> filter(genotype == "WT v-abl") 
+
+#percentage SGs plot for G3BP1
+SG_per_cell <- cells_with_SG_filtered |> ggplot(aes(x=Stressor, y=Ratio_SG, fill = Stressor)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) + 
+  theme_minimal() + scale_y_continuous(limits = c(0, 100)) +
+  labs(title = "G3BP1-positve SGs") + theme(axis.title.x = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1)) + theme(axis.title.x = element_blank(), legend.position="none", legend.title = element_blank()) + ylab("% cells with SGs") + facet_wrap(~ genotype, nrow = 1) + theme(
+         panel.background = element_rect(fill='transparent'),
+         plot.background = element_rect(fill='transparent', color=NA),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         legend.background = element_rect(fill='transparent'),
+         legend.box.background = element_rect(fill='transparent')
+       ) + 
+   scale_fill_manual(values = manual_colors)
+```
